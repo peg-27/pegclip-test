@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="app-version" content="1">
+<meta name="theme-color" content="#1b1a18">
+<title>PEGクリップ</title>
+
+<!--
+  ========================================
+  PEGクリップ  セクション索引
+  ========================================
+  #SEC_CSS_BASE    色トークン・土台のスタイル
+  #SEC_CSS_HEAD    ヘッダーとツールバー
+  #SEC_CSS_CARD    カード一覧の見た目
+  #SEC_CSS_SHEET   下から出る入力シート／トースト
+  #SEC_HTML        画面の構造
+  #SEC_JS_DB       IndexedDB（開く・保存・読む・消す）
+  #SEC_JS_STATE    メモリ上のカード配列と再描画
+  #SEC_JS_ADD      カードを足す（テキスト／画像／メモ）
+  #SEC_JS_CLIP     クリップボードの読み取り・書き込み
+  #SEC_JS_SHEET    入力シートの開閉と保存
+  #SEC_JS_UTIL     URL判定・画像縮小・日付・トースト
+  #SEC_JS_INIT     起動処理とイベント登録
+  ========================================
+-->
+
+<style>
+/* #SEC_CSS_BASE ------------------------------------ */
+:root{
+  --bg:#1b1a18;
+  --panel:#252320;
+  --line:#3a3733;
+  --text:#ece7df;
+  --dim:#9a938a;
+  --tag:#e0a84e;
+  --danger:#c96a5c;
+  --radius:14px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  font-size:15px;
+  line-height:1.7;
+  -webkit-text-size-adjust:100%;
+  padding-bottom:40px;
+}
+button{
+  font-family:inherit;
+  font-size:14px;
+  color:var(--text);
+  background:transparent;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:9px 14px;
+  cursor:pointer;
+}
+button:active{background:#333029;}
+button:focus-visible{outline:2px solid var(--tag);outline-offset:2px;}
+textarea,input[type="text"]{
+  font-family:inherit;
+  font-size:15px;
+  color:var(--text);
+  background:#1b1a18;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:10px 12px;
+  width:100%;
+}
+textarea:focus,input:focus{outline:2px solid var(--tag);outline-offset:0;border-color:transparent;}
+
+/* #SEC_CSS_HEAD ------------------------------------ */
+header{
+  padding:18px 16px 12px;
+  border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:5;
+  background:var(--bg);
+}
+header h1{
+  margin:0;
+  font-size:19px;
+  font-weight:600;
+  letter-spacing:.04em;
+}
+header p{
+  margin:2px 0 0;
+  font-size:12px;
+  color:var(--dim);
+}
+.toolbar{
+  display:flex;gap:8px;
+  padding:12px 16px;
+}
+.toolbar button{flex:1;}
+.toolbar .primary{
+  background:var(--tag);
+  border-color:var(--tag);
+  color:#211d16;
+  font-weight:600;
+}
+
+/* #SEC_CSS_CARD ------------------------------------ */
+#list{padding:0 16px;display:flex;flex-direction:column;gap:12px;}
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  overflow:hidden;
+}
+.purpose{
+  display:block;
+  padding:10px 14px 9px;
+  font-size:13px;
+  color:var(--tag);
+  border-left:3px solid var(--tag);
+  background:#2b2823;
+}
+.purpose.empty{color:var(--dim);border-left-color:var(--line);}
+.body{padding:12px 14px;}
+.body pre{
+  margin:0;
+  font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:13px;
+  line-height:1.6;
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:8.5em;
+  overflow:hidden;
+  color:var(--text);
+}
+.body pre.open{max-height:none;}
+.body img{
+  display:block;
+  max-width:100%;
+  max-height:220px;
+  border-radius:8px;
+  background:#000;
+}
+.meta{
+  padding:0 14px 8px;
+  font-size:11px;
+  color:var(--dim);
+}
+.actions{
+  display:flex;gap:8px;
+  padding:0 14px 12px;
+}
+.actions button{padding:7px 12px;font-size:13px;}
+.actions .del{color:var(--danger);border-color:#4a3430;margin-left:auto;}
+.empty-state{
+  padding:60px 24px;
+  text-align:center;
+  color:var(--dim);
+  font-size:14px;
+}
+
+/* #SEC_CSS_SHEET ----------------------------------- */
+.backdrop{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.55);
+  display:none;z-index:20;
+}
+.backdrop.on{display:block;}
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;
+  background:var(--panel);
+  border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;
+  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  z-index:21;
+  display:none;
+  max-height:88vh;overflow:auto;
+}
+.sheet.on{display:block;}
+.sheet h2{margin:0 0 12px;font-size:15px;font-weight:600;}
+.sheet label{display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;}
+.sheet .row{display:flex;gap:8px;margin-top:18px;}
+.sheet .row button{flex:1;}
+.sheet .row .save{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;}
+.preview{
+  background:#1b1a18;
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:10px 12px;
+  max-height:140px;overflow:auto;
+}
+.preview pre{margin:0;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;}
+.preview img{display:block;max-width:100%;max-height:120px;}
+#toast{
+  position:fixed;left:50%;bottom:28px;
+  transform:translateX(-50%) translateY(10px);
+  background:#3c3831;border:1px solid var(--line);
+  color:var(--text);
+  padding:10px 18px;border-radius:999px;
+  font-size:13px;
+  opacity:0;pointer-events:none;
+  transition:opacity .18s,transform .18s;
+  z-index:30;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+@media (prefers-reduced-motion:reduce){#toast{transition:none;}}
+</style>
+</head>
+<body>
+
+<!-- #SEC_HTML ---------------------------------------- -->
+<header>
+  <h1>PEGクリップ</h1>
+  <p>あとで使うかもしれないものを、理由ごと置いておく箱</p>
+</header>
+
+<div class="toolbar">
+  <button id="btnPaste" class="primary">クリップボードから入れる</button>
+  <button id="btnNote">書いて入れる</button>
+</div>
+
+<div id="list"></div>
+
+<div class="backdrop" id="backdrop"></div>
+
+<div class="sheet" id="sheet">
+  <h2 id="sheetTitle">何のために置きますか</h2>
+  <div id="sheetPreviewWrap">
+    <label>入れるもの</label>
+    <div class="preview" id="sheetPreview"></div>
+  </div>
+  <div id="sheetTextWrap" style="display:none;">
+    <label>内容</label>
+    <textarea id="sheetText" rows="5"></textarea>
+  </div>
+  <label for="sheetPurpose">何のために（一行）</label>
+  <input type="text" id="sheetPurpose" placeholder="例：PEGコスメのアイコン候補を探すため">
+  <div class="row">
+    <button id="sheetCancel">やめる</button>
+    <button id="sheetSave" class="save">保存する</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* #SEC_JS_DB --------------------------------------- */
+const DB_NAME = 'pegclip';
+const DB_VER  = 1;
+const STORE   = 'cards';
+let db = null;
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains(STORE)){
+        const store = d.createObjectStore(STORE, { keyPath:'id' });
+        store.createIndex('createdAt', 'createdAt');
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbPut(card){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(card);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+function dbGetAll(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbDelete(id){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = e => reject(e.target.error);
+  });
+}
+
+/* #SEC_JS_STATE ------------------------------------ */
+let cards = [];                 // 画像Blobも含めてメモリに保持する（コピー時に待たせないため）
+const listEl = document.getElementById('list');
+
+async function reload(){
+  cards = await dbGetAll();
+  cards.sort((a,b) => b.createdAt - a.createdAt);
+  render();
+}
+
+function render(){
+  listEl.innerHTML = '';
+  if(cards.length === 0){
+    const p = document.createElement('div');
+    p.className = 'empty-state';
+    p.textContent = 'まだ何も入っていません。上のボタンから入れてください。';
+    listEl.appendChild(p);
+    return;
+  }
+  cards.forEach(card => listEl.appendChild(buildCard(card)));
+}
+
+function buildCard(card){
+  const el = document.createElement('div');
+  el.className = 'card';
+
+  // 何のために
+  const purpose = document.createElement('button');
+  purpose.className = 'purpose' + (card.purpose ? '' : ' empty');
+  purpose.textContent = card.purpose || '（理由が書かれていません。押すと書けます）';
+  purpose.addEventListener('click', () => openSheetForEdit(card));
+  el.appendChild(purpose);
+
+  // 中身
+  const body = document.createElement('div');
+  body.className = 'body';
+  if(card.type === 'image'){
+    const img = document.createElement('img');
+    img.alt = '保存した画像';
+    img.src = URL.createObjectURL(card.blob);
+    body.appendChild(img);
+  } else {
+    const pre = document.createElement('pre');
+    pre.textContent = card.text;
+    pre.addEventListener('click', () => pre.classList.toggle('open'));
+    body.appendChild(pre);
+  }
+  el.appendChild(body);
+
+  // 日付など
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = labelOf(card) + ' ・ ' + formatDate(card.createdAt);
+  el.appendChild(meta);
+
+  // ボタン
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+
+  const copy = document.createElement('button');
+  copy.textContent = 'コピー';
+  copy.addEventListener('click', () => copyCard(card));
+  actions.appendChild(copy);
+
+  if(card.type === 'url'){
+    const open = document.createElement('button');
+    open.textContent = '開く';
+    open.addEventListener('click', () => window.open(card.text, '_blank', 'noopener'));
+    actions.appendChild(open);
+  }
+
+  const del = document.createElement('button');
+  del.className = 'del';
+  del.textContent = '削除';
+  del.addEventListener('click', async () => {
+    if(!confirm('このカードを削除します。よろしいですか。')) return;
+    await dbDelete(card.id);
+    await reload();
+    toast('削除しました');
+  });
+  actions.appendChild(del);
+
+  el.appendChild(actions);
+  return el;
+}
+
+function labelOf(card){
+  if(card.type === 'image') return '画像';
+  if(card.type === 'url')   return 'URL';
+  return 'テキスト';
+}
+
+/* #SEC_JS_ADD -------------------------------------- */
+function newId(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// 保存前に確認シートへ渡す一時置き場
+let pending = null;
+
+function stageText(text){
+  const t = text.trim();
+  if(!t){ toast('中身が空です'); return; }
+  pending = { id:newId(), type: isUrl(t) ? 'url' : 'text', text:t, purpose:'', createdAt:Date.now() };
+  openSheet('new');
+}
+
+function stageImage(blob){
+  pending = { id:newId(), type:'image', blob:blob, text:'', purpose:'', createdAt:Date.now() };
+  openSheet('new');
+}
+
+/* #SEC_JS_CLIP ------------------------------------- */
+async function pasteFromClipboard(){
+  if(!navigator.clipboard || !navigator.clipboard.read){
+    toast('このブラウザはクリップボードの読み取りに対応していません');
+    return;
+  }
+  try{
+    const items = await navigator.clipboard.read();
+    if(items.length === 0){ toast('クリップボードは空です'); return; }
+    const item = items[0];
+    const imageType = item.types.find(t => t.startsWith('image/'));
+    if(imageType){
+      const raw = await item.getType(imageType);
+      const shrunk = await shrinkImage(raw);
+      stageImage(shrunk);
+      return;
+    }
+    if(item.types.includes('text/plain')){
+      const blob = await item.getType('text/plain');
+      stageText(await blob.text());
+      return;
+    }
+    toast('対応していない形式でした');
+  }catch(err){
+    toast('読み取れませんでした（権限を確認してください）');
+    console.error(err);
+  }
+}
+
+async function copyCard(card){
+  try{
+    if(card.type === 'image'){
+      if(!navigator.clipboard || !window.ClipboardItem){
+        toast('このブラウザは画像のコピーに対応していません'); return;
+      }
+      await navigator.clipboard.write([ new ClipboardItem({ 'image/png': card.blob }) ]);
+      toast('画像をコピーしました');
+    } else {
+      await navigator.clipboard.writeText(card.text);
+      toast('コピーしました');
+    }
+  }catch(err){
+    toast('コピーできませんでした');
+    console.error(err);
+  }
+}
+
+/* #SEC_JS_SHEET ------------------------------------ */
+const sheet        = document.getElementById('sheet');
+const backdrop     = document.getElementById('backdrop');
+const sheetTitle   = document.getElementById('sheetTitle');
+const sheetPreview = document.getElementById('sheetPreview');
+const sheetPreviewWrap = document.getElementById('sheetPreviewWrap');
+const sheetTextWrap = document.getElementById('sheetTextWrap');
+const sheetTextEl  = document.getElementById('sheetText');
+const sheetPurpose = document.getElementById('sheetPurpose');
+
+let sheetMode = 'new';   // 'new' | 'note' | 'edit'
+let editing   = null;
+
+function openSheet(mode){
+  sheetMode = mode;
+  sheetPurpose.value = '';
+  sheetTextEl.value  = '';
+  sheetPreview.innerHTML = '';
+
+  if(mode === 'note'){
+    sheetTitle.textContent = '書いて入れる';
+    sheetPreviewWrap.style.display = 'none';
+    sheetTextWrap.style.display = '';
+  } else if(mode === 'edit'){
+    sheetTitle.textContent = '理由を書き直す';
+    sheetPreviewWrap.style.display = '';
+    sheetTextWrap.style.display = 'none';
+    showPreview(editing);
+    sheetPurpose.value = editing.purpose || '';
+  } else {
+    sheetTitle.textContent = '何のために置きますか';
+    sheetPreviewWrap.style.display = '';
+    sheetTextWrap.style.display = 'none';
+    showPreview(pending);
+  }
+
+  backdrop.classList.add('on');
+  sheet.classList.add('on');
+  setTimeout(() => {
+    (mode === 'note' ? sheetTextEl : sheetPurpose).focus();
+  }, 60);
+}
+
+function showPreview(card){
+  sheetPreview.innerHTML = '';
+  if(card.type === 'image'){
+    const img = document.createElement('img');
+    img.alt = '入れる画像';
+    img.src = URL.createObjectURL(card.blob);
+    sheetPreview.appendChild(img);
+  } else {
+    const pre = document.createElement('pre');
+    pre.textContent = card.text;
+    sheetPreview.appendChild(pre);
+  }
+}
+
+function closeSheet(){
+  backdrop.classList.remove('on');
+  sheet.classList.remove('on');
+  pending = null;
+  editing = null;
+}
+
+function openSheetForEdit(card){
+  editing = card;
+  openSheet('edit');
+}
+
+async function saveSheet(){
+  if(sheetMode === 'edit'){
+    editing.purpose = sheetPurpose.value.trim();
+    await dbPut(editing);
+    closeSheet();
+    await reload();
+    toast('書き直しました');
+    return;
+  }
+  if(sheetMode === 'note'){
+    const t = sheetTextEl.value.trim();
+    if(!t){ toast('内容が空です'); return; }
+    pending = { id:newId(), type: isUrl(t) ? 'url' : 'text', text:t, purpose:'', createdAt:Date.now() };
+  }
+  if(!pending){ closeSheet(); return; }
+  pending.purpose = sheetPurpose.value.trim();
+  await dbPut(pending);
+  closeSheet();
+  await reload();
+  toast('保存しました');
+}
+
+/* #SEC_JS_UTIL ------------------------------------- */
+function isUrl(s){
+  return /^https?:\/\/\S+$/i.test(s.trim());
+}
+
+// 大きい画像はそのまま入れると容量を食うので、長辺1600pxまで縮めてPNGに揃える
+function shrinkImage(blob){
+  return new Promise(async (resolve) => {
+    try{
+      const bitmap = await createImageBitmap(blob);
+      const max = 1600;
+      let { width:w, height:h } = bitmap;
+      if(w <= max && h <= max && blob.type === 'image/png'){
+        bitmap.close();
+        resolve(blob);
+        return;
+      }
+      const scale = Math.min(1, max / Math.max(w, h));
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+      bitmap.close();
+      canvas.toBlob(out => resolve(out || blob), 'image/png');
+    }catch(err){
+      console.error(err);
+      resolve(blob);
+    }
+  });
+}
+
+function formatDate(ms){
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+let toastTimer = null;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 1800);
+}
+
+/* #SEC_JS_INIT ------------------------------------- */
+document.getElementById('btnPaste').addEventListener('click', pasteFromClipboard);
+document.getElementById('btnNote').addEventListener('click', () => openSheet('note'));
+document.getElementById('sheetSave').addEventListener('click', saveSheet);
+document.getElementById('sheetCancel').addEventListener('click', closeSheet);
+backdrop.addEventListener('click', closeSheet);
+
+(async function init(){
+  try{
+    db = await openDB();
+    await reload();
+  }catch(err){
+    console.error(err);
+    listEl.innerHTML = '<div class="empty-state">保存領域を開けませんでした。Chromeで開き直すと動くことがあります。</div>';
+  }
+})();
+</script>
+</body>
+</html>
