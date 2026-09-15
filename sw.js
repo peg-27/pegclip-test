@@ -7,7 +7,7 @@
    ※ バージョン番号の更新はPEGさんが手で行う
    ========================================================== */
 
-const VERSION = 'pegclip-v5';
+const VERSION = 'pegclip-v7';
 const ASSETS  = ['./', './index.html', './manifest.json'];
 
 const DB_NAME = 'pegclip';
@@ -36,7 +36,10 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // 共有メニューからの送信をここで受け止める
-  if(event.request.method === 'POST' && url.pathname.endsWith('/share-target')){
+  // 送信先はアプリのトップ（./）。旧設定の ./share-target も念のため受け付ける
+  const scopePath = new URL('./', self.location).pathname;
+  if(event.request.method === 'POST' &&
+     (url.pathname === scopePath || url.pathname === scopePath + 'index.html' || url.pathname.endsWith('/share-target'))){
     event.respondWith(handleShare(event.request));
     return;
   }
@@ -63,6 +66,12 @@ async function handleShare(request){
   const log = [];
   const items = [];
   try{
+    // 診断用：Chromeが送ってきたデータの大きさと形式を記録する（読むのは複製の方）
+    const type = (request.headers.get('content-type') || 'なし').split(';')[0];
+    const size = (await request.clone().arrayBuffer()).byteLength;
+    log.push(`送信形式: ${type}`);
+    log.push(`送信サイズ: ${size}バイト`);
+
     const form  = await request.formData();
     const title = (form.get('title') || '').toString().trim();
     const text  = (form.get('text')  || '').toString().trim();
