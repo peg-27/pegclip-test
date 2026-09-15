@@ -7,7 +7,7 @@
    ※ バージョン番号の更新はPEGさんが手で行う
    ========================================================== */
 
-const VERSION = 'pegclip-v4';
+const VERSION = 'pegclip-v5';
 const ASSETS  = ['./', './index.html', './manifest.json'];
 
 const DB_NAME = 'pegclip';
@@ -56,20 +56,36 @@ self.addEventListener('fetch', event => {
 });
 
 /* ---------- 共有の受け取り ---------- */
+// 診断モード：受け取った中身の一覧を【診断】カードとして残す。原因が分かったら false にする
+const DEBUG_SHARE = true;
+
 async function handleShare(request){
+  const log = [];
+  const items = [];
   try{
     const form  = await request.formData();
     const title = (form.get('title') || '').toString().trim();
     const text  = (form.get('text')  || '').toString().trim();
     const url   = (form.get('url')   || '').toString().trim();
-    const files = form.getAll('files').filter(f => f && f.size > 0);
-
     const now = Date.now();
-    const items = [];
 
-    files.forEach((f, i) => {
-      items.push({ id: newId(), kind:'image', blob:f, title:title, createdAt: now + i });
-    });
+    // 項目名に関係なく、届いたファイルをすべて拾う
+    let n = 0;
+    for(const [key, value] of form.entries()){
+      if(typeof value === 'string'){
+        log.push(`${key}: 文字 ${value.length}字`);
+        continue;
+      }
+      log.push(`${key}: ファイル ${value.type || '種類不明'} ${value.size}バイト`);
+      if(value.size > 0){
+        // ファイルのままではなく中身を読み出してから保存する（保存失敗の対策）
+        const buf  = await value.arrayBuffer();
+        const blob = new Blob([buf], { type: value.type || 'image/png' });
+        items.push({ id: newId(), kind:'image', blob:blob, title:title, createdAt: now + n });
+        n++;
+      }
+    }
+    if(log.length === 0) log.push('届いた項目なし');
 
     // URLとテキストの両方が来ることがある。URLを優先し、別内容のテキストがあれば分けて入れる
     if(url){
@@ -80,11 +96,23 @@ async function handleShare(request){
     } else if(text){
       items.push({ id:newId(), kind:'text', text:text, title:title, createdAt: now + 100 });
     }
-
-    if(items.length > 0) await putInbox(items);
   }catch(err){
-    // 受け取りに失敗してもアプリは開く
-    console.error(err);
+    log.push('受け取り失敗: ' + (err && err.message || err));
+  }
+
+  if(DEBUG_SHARE){
+    items.push({ id:newId(), kind:'text', text:'【診断】\n' + log.join('\n'), title:'', createdAt: Date.now() + 200 });
+  }
+
+  // 1件ずつ保存する（1件の失敗で全部が消えないように）
+  for(const it of items){
+    try{
+      await putInbox([it]);
+    }catch(err){
+      try{
+        await putInbox([{ id:newId(), kind:'text', text:'【診断】保存失敗: ' + it.kind + ' / ' + (err && err.message || err), title:'', createdAt: Date.now() + 300 }]);
+      }catch(e){}
+    }
   }
 
   return Response.redirect(new URL('./?shared=1', self.location).href, 303);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="app-version" content="4">
+<meta name="app-version" content="5">
 <meta name="theme-color" content="#1b1a18">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -741,6 +741,11 @@ async function drainInbox(){
       }
     }catch(err){
       console.error(err);
+      // 移し替えに失敗したら、理由を【診断】カードとして残す
+      try{
+        await dbPut({ id:newId(), type:'text', text:'【診断】取り込み失敗: ' + item.kind + ' / ' + (err && err.message || err),
+                      title:'', purpose:'', createdAt:Date.now() });
+      }catch(e){}
     }
     await inboxDelete(item.id);
   }
