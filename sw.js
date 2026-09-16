@@ -4,10 +4,10 @@
      1. 共有メニューから送られてきたもの（POST）を受け取って
         IndexedDBの inbox に入れ、アプリを開き直す
      2. 最低限のキャッシュ（オフラインでも開けるように）
-   ※ バージョン番号の更新はPEGさんが手で行う
+   ※ sw.js を変更したら VERSION の数字を上げる
    ========================================================== */
 
-const VERSION = 'pegclip-v7';
+const VERSION = 'pegclip-v8';
 const ASSETS  = ['./', './index.html', './manifest.json'];
 
 const DB_NAME = 'pegclip';
@@ -60,7 +60,7 @@ self.addEventListener('fetch', event => {
 
 /* ---------- 共有の受け取り ---------- */
 // 診断モード：受け取った中身の一覧を【診断】カードとして残す。原因が分かったら false にする
-const DEBUG_SHARE = true;
+const DEBUG_SHARE = false;
 
 async function handleShare(request){
   const log = [];
