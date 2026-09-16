@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="app-version" content="6">
+<meta name="app-version" content="7">
 <meta name="theme-color" content="#1b1a18">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -144,6 +144,10 @@ header p{
 }
 .purpose{
   display:block;
+  width:100%;
+  text-align:left;
+  border:0;
+  border-radius:0;
   padding:10px 14px 9px;
   font-size:13px;
   color:var(--tag);
@@ -151,6 +155,16 @@ header p{
   background:#2b2823;
 }
 .purpose.empty{color:var(--dim);border-left-color:var(--line);}
+
+/* カードの中での編集 */
+.edit-area{padding:12px 14px 4px;}
+.edit-area label{display:block;font-size:12px;color:var(--dim);margin:0 0 6px;}
+.edit-area label + textarea,
+.edit-area label + input{margin-bottom:12px;}
+.edit-area textarea{resize:vertical;font-size:14px;line-height:1.6;}
+.edit-area img{display:block;max-width:100%;max-height:160px;border-radius:8px;margin-bottom:12px;}
+.actions .ok{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;}
+.actions .right{margin-left:auto;}
 .body{padding:12px 14px;}
 .body pre{
   margin:0;
@@ -358,7 +372,11 @@ function render(){
   cards.forEach(card => listEl.appendChild(buildCard(card)));
 }
 
+let inlineEditId = null;   // カードの中で編集中のカードのid（同時に1枚だけ）
+
 function buildCard(card){
+  if(card.id === inlineEditId) return buildEditCard(card);
+
   const el = document.createElement('div');
   el.className = 'card';
 
@@ -408,6 +426,11 @@ function buildCard(card){
     actions.appendChild(open);
   }
 
+  const edit = document.createElement('button');
+  edit.textContent = '編集';
+  edit.addEventListener('click', () => startInlineEdit(card.id));
+  actions.appendChild(edit);
+
   const del = document.createElement('button');
   del.className = 'del';
   del.textContent = '削除';
@@ -421,6 +444,85 @@ function buildCard(card){
 
   el.appendChild(actions);
   return el;
+}
+
+// 編集中のカード。見た目はカードのまま、中身と理由が入力欄になる
+function buildEditCard(card){
+  const el = document.createElement('div');
+  el.className = 'card';
+
+  const area = document.createElement('div');
+  area.className = 'edit-area';
+
+  let textEl = null;
+  if(card.type === 'image'){
+    // 画像そのものは編集できないので、見るだけ
+    const img = document.createElement('img');
+    img.alt = '保存した画像';
+    img.src = URL.createObjectURL(card.blob);
+    area.appendChild(img);
+  } else {
+    const lab = document.createElement('label');
+    lab.textContent = '内容';
+    textEl = document.createElement('textarea');
+    textEl.value = card.text;
+    const lines = card.text.split('\n').length;
+    textEl.rows = Math.min(12, Math.max(3, lines + 1));
+    area.appendChild(lab);
+    area.appendChild(textEl);
+  }
+
+  const lab2 = document.createElement('label');
+  lab2.textContent = '何のために（一行）';
+  const purposeEl = document.createElement('input');
+  purposeEl.type = 'text';
+  purposeEl.value = card.purpose || '';
+  purposeEl.placeholder = '例：PEGコスメのアイコン候補を探すため';
+  area.appendChild(lab2);
+  area.appendChild(purposeEl);
+  el.appendChild(area);
+
+  const actions = document.createElement('div');
+  actions.className = 'actions';
+
+  const cancel = document.createElement('button');
+  cancel.className = 'right';
+  cancel.textContent = 'キャンセル';
+  cancel.addEventListener('click', () => {
+    inlineEditId = null;
+    render();
+  });
+  actions.appendChild(cancel);
+
+  const ok = document.createElement('button');
+  ok.className = 'ok';
+  ok.textContent = 'OK';
+  ok.addEventListener('click', async () => {
+    if(textEl){
+      const t = textEl.value.trim();
+      if(!t){ toast('内容が空です'); return; }
+      card.text = t;
+      card.type = isUrl(t) ? 'url' : 'text';   // 書き換えでURLになった／URLでなくなった場合に合わせる
+    }
+    card.purpose = purposeEl.value.trim();
+    await dbPut(card);
+    inlineEditId = null;
+    await reload();
+    toast('保存しました');
+  });
+  actions.appendChild(ok);
+
+  el.appendChild(actions);
+
+  // 開いたらすぐ書けるように入力欄へ移る
+  setTimeout(() => (textEl || purposeEl).focus(), 60);
+  return el;
+}
+
+// 別のカードを編集中に押した場合は、前のカードの書きかけは捨てて切り替える
+function startInlineEdit(id){
+  inlineEditId = id;
+  render();
 }
 
 function labelOf(card){
