@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="app-version" content="5">
+<meta name="app-version" content="6">
 <meta name="theme-color" content="#1b1a18">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -24,6 +24,7 @@
   #SEC_JS_ADD      カードを足す（テキスト／画像／メモ）
   #SEC_JS_CLIP     クリップボードの読み取り・書き込み
   #SEC_JS_PASTE    貼り付け枠（権限が要らない入り口）
+  #SEC_JS_PICK     画像を選んで入れる（共有が使えないときの入り口）
   #SEC_JS_SHEET    入力シートの開閉と保存
   #SEC_JS_UTIL     URL判定・画像縮小・日付・トースト
   #SEC_JS_INBOX    共有メニューから届いたものを取り込む
@@ -97,10 +98,11 @@ header p{
   color:var(--dim);
 }
 .toolbar{
-  display:flex;gap:8px;
+  display:flex;flex-wrap:wrap;gap:8px;
   padding:12px 16px;
 }
 .toolbar button{flex:1;}
+.toolbar .primary{flex-basis:100%;}
 .toolbar .primary{
   background:var(--tag);
   border-color:var(--tag);
@@ -244,7 +246,9 @@ header p{
 
 <div class="toolbar">
   <button id="btnPaste" class="primary">クリップボードから入れる</button>
+  <button id="btnPick">画像を選んで入れる</button>
   <button id="btnNote">書いて入れる</button>
+  <input type="file" id="filePick" accept="image/*" multiple hidden>
 </div>
 
 <div class="pastearea">
@@ -569,6 +573,37 @@ function clearBox(){
   pasteBox.innerHTML = '';
 }
 
+/* #SEC_JS_PICK ------------------------------------- */
+// 端末の画像を選んで入れる。複数選択できる
+const filePick = document.getElementById('filePick');
+
+filePick.addEventListener('change', async () => {
+  const files = Array.from(filePick.files || []);
+  filePick.value = '';   // 同じ画像をもう一度選んでも反応するように空にしておく
+  if(files.length === 0) return;
+
+  let ok = 0, ng = 0;
+  const base = Date.now();
+  for(let i = 0; i < files.length; i++){
+    try{
+      // 開けない画像（ブラウザが対応していない形式など）は入れない
+      const bitmap = await createImageBitmap(files[i]);
+      bitmap.close();
+      const shrunk = await shrinkImage(files[i]);
+      await dbPut({ id:newId(), type:'image', blob:shrunk, text:'',
+                    purpose:'', createdAt: base + i });
+      ok++;
+    }catch(err){
+      console.error(err);
+      ng++;
+    }
+  }
+  await reload();
+  if(ng === 0)      toast(ok === 1 ? '入れました' : `${ok}件入れました`);
+  else if(ok === 0) toast('画像を開けませんでした');
+  else              toast(`${ok}件入れました（${ng}件は開けませんでした）`);
+});
+
 /* #SEC_JS_SHEET ------------------------------------ */
 const sheet        = document.getElementById('sheet');
 const backdrop     = document.getElementById('backdrop');
@@ -755,6 +790,7 @@ async function drainInbox(){
 /* #SEC_JS_INIT ------------------------------------- */
 document.getElementById('btnPaste').addEventListener('click', pasteFromClipboard);
 document.getElementById('btnNote').addEventListener('click', () => openSheet('note'));
+document.getElementById('btnPick').addEventListener('click', () => filePick.click());
 document.getElementById('btnTake').addEventListener('click', takeFromBox);
 document.getElementById('btnClearBox').addEventListener('click', () => { clearBox(); toast('枠を空にしました'); });
 document.getElementById('sheetSave').addEventListener('click', saveSheet);
