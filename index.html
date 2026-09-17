@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="app-version" content="7">
+<meta name="app-version" content="11">
 <meta name="theme-color" content="#1b1a18">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -163,8 +163,8 @@ header p{
 .edit-area label + input{margin-bottom:12px;}
 .edit-area textarea{resize:vertical;font-size:14px;line-height:1.6;}
 .edit-area img{display:block;max-width:100%;max-height:160px;border-radius:8px;margin-bottom:12px;}
-.actions .ok{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;}
-.actions .right{margin-left:auto;}
+.actions .ok{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;margin-left:auto;min-width:88px;}
+.actions .cancel{min-width:88px;}
 .body{padding:12px 14px;}
 .body pre{
   margin:0;
@@ -211,30 +211,32 @@ header p{
 }
 .backdrop.on{display:block;}
 .sheet{
-  position:fixed;left:0;right:0;bottom:0;
+  /* 画面の上端近くに出す（キーボードが出ても、中身が空ならボタンまで見えるように） */
+  position:fixed;left:12px;right:12px;
+  top:calc(16px + env(safe-area-inset-top));
   background:var(--panel);
-  border-top:1px solid var(--line);
-  border-radius:18px 18px 0 0;
-  padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+  border:1px solid var(--line);
+  border-radius:18px;
   z-index:21;
   display:none;
-  max-height:88vh;overflow:auto;
+  /* 画面より長くなったときは、モーダル全体をスクロールしてボタンまで行ける */
+  max-height:calc(100vh - 32px);
+  max-height:calc(100dvh - 32px);
+  overflow:auto;
 }
 .sheet.on{display:block;}
+.sheet-body{
+  padding:18px 16px 4px;
+}
 .sheet h2{margin:0 0 12px;font-size:15px;font-weight:600;}
 .sheet label{display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;}
-.sheet .row{display:flex;gap:8px;margin-top:18px;}
-.sheet .row button{flex:1;}
-.sheet .row .save{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;}
-.preview{
-  background:#1b1a18;
-  border:1px solid var(--line);
-  border-radius:10px;
-  padding:10px 12px;
-  max-height:140px;overflow:auto;
+.sheet .row{
+  display:flex;justify-content:space-between;gap:8px;
+  padding:12px 16px 14px;
+  border-top:1px solid var(--line);
 }
-.preview pre{margin:0;font-family:ui-monospace,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;}
-.preview img{display:block;max-width:100%;max-height:120px;}
+.sheet .row button{min-width:88px;}
+.sheet .row .ok{background:var(--tag);border-color:var(--tag);color:#211d16;font-weight:600;}
 #toast{
   position:fixed;left:50%;bottom:28px;
   transform:translateX(-50%) translateY(10px);
@@ -278,20 +280,16 @@ header p{
 <div class="backdrop" id="backdrop"></div>
 
 <div class="sheet" id="sheet">
-  <h2 id="sheetTitle">何のために置きますか</h2>
-  <div id="sheetPreviewWrap">
-    <label>入れるもの</label>
-    <div class="preview" id="sheetPreview"></div>
-  </div>
-  <div id="sheetTextWrap" style="display:none;">
-    <label>内容</label>
+  <div class="sheet-body">
+    <h2 id="sheetTitle">書いて入れる</h2>
+    <label for="sheetText">内容</label>
     <textarea id="sheetText" rows="5"></textarea>
+    <label for="sheetPurpose">何のために（一行）</label>
+    <input type="text" id="sheetPurpose" placeholder="例：PEGコスメのアイコン候補を探すため">
   </div>
-  <label for="sheetPurpose">何のために（一行）</label>
-  <input type="text" id="sheetPurpose" placeholder="例：PEGコスメのアイコン候補を探すため">
   <div class="row">
-    <button id="sheetCancel">やめる</button>
-    <button id="sheetSave" class="save">保存する</button>
+    <button id="sheetCancel" class="cancel">キャンセル</button>
+    <button id="sheetSave" class="ok">OK</button>
   </div>
 </div>
 
@@ -361,6 +359,7 @@ async function reload(){
 }
 
 function render(){
+  const keepY = window.scrollY;   // 描き直しで一瞬ページが短くなっても位置を戻せるように覚えておく
   listEl.innerHTML = '';
   if(cards.length === 0){
     const p = document.createElement('div');
@@ -370,21 +369,34 @@ function render(){
     return;
   }
   cards.forEach(card => listEl.appendChild(buildCard(card)));
+  window.scrollTo(0, keepY);
+}
+
+// カード1枚だけを作り直して差し替える（一覧全体を描き直さないので画面が動かない）
+function replaceCardEl(id){
+  const card = cards.find(c => c.id === id);
+  const old  = listEl.querySelector('[data-id="' + CSS.escape(String(id)) + '"]');
+  if(!card || !old) return null;
+  const el = buildCard(card);
+  old.replaceWith(el);
+  return el;
 }
 
 let inlineEditId = null;   // カードの中で編集中のカードのid（同時に1枚だけ）
+let inlineDraft  = null;   // 書きかけの内容 { text, purpose }。画面を描き直しても消えないようにここに持つ
 
 function buildCard(card){
   if(card.id === inlineEditId) return buildEditCard(card);
 
   const el = document.createElement('div');
   el.className = 'card';
+  el.dataset.id = String(card.id);
 
   // 何のために
   const purpose = document.createElement('button');
   purpose.className = 'purpose' + (card.purpose ? '' : ' empty');
   purpose.textContent = card.purpose || '（理由が書かれていません。押すと書けます）';
-  purpose.addEventListener('click', () => openSheetForEdit(card));
+  purpose.addEventListener('click', () => startInlineEdit(card.id, 'purpose'));
   el.appendChild(purpose);
 
   // 中身
@@ -428,7 +440,7 @@ function buildCard(card){
 
   const edit = document.createElement('button');
   edit.textContent = '編集';
-  edit.addEventListener('click', () => startInlineEdit(card.id));
+  edit.addEventListener('click', () => startInlineEdit(card.id, 'text'));
   actions.appendChild(edit);
 
   const del = document.createElement('button');
@@ -450,10 +462,23 @@ function buildCard(card){
 function buildEditCard(card){
   const el = document.createElement('div');
   el.className = 'card';
+  el.dataset.id = String(card.id);
 
   const area = document.createElement('div');
   area.className = 'edit-area';
 
+  // 何のために（通常のカードと同じく上に置く）
+  const lab2 = document.createElement('label');
+  lab2.textContent = '何のために（一行）';
+  const purposeEl = document.createElement('input');
+  purposeEl.type = 'text';
+  purposeEl.value = inlineDraft.purpose;
+  purposeEl.placeholder = '例：PEGコスメのアイコン候補を探すため';
+  purposeEl.addEventListener('input', () => { inlineDraft.purpose = purposeEl.value; });
+  area.appendChild(lab2);
+  area.appendChild(purposeEl);
+
+  // 内容（下）
   let textEl = null;
   if(card.type === 'image'){
     // 画像そのものは編集できないので、見るだけ
@@ -465,32 +490,24 @@ function buildEditCard(card){
     const lab = document.createElement('label');
     lab.textContent = '内容';
     textEl = document.createElement('textarea');
-    textEl.value = card.text;
-    const lines = card.text.split('\n').length;
+    textEl.value = inlineDraft.text;
+    textEl.addEventListener('input', () => { inlineDraft.text = textEl.value; });
+    const lines = inlineDraft.text.split('\n').length;
     textEl.rows = Math.min(12, Math.max(3, lines + 1));
     area.appendChild(lab);
     area.appendChild(textEl);
   }
-
-  const lab2 = document.createElement('label');
-  lab2.textContent = '何のために（一行）';
-  const purposeEl = document.createElement('input');
-  purposeEl.type = 'text';
-  purposeEl.value = card.purpose || '';
-  purposeEl.placeholder = '例：PEGコスメのアイコン候補を探すため';
-  area.appendChild(lab2);
-  area.appendChild(purposeEl);
   el.appendChild(area);
 
   const actions = document.createElement('div');
   actions.className = 'actions';
 
   const cancel = document.createElement('button');
-  cancel.className = 'right';
+  cancel.className = 'cancel';
   cancel.textContent = 'キャンセル';
   cancel.addEventListener('click', () => {
-    inlineEditId = null;
-    render();
+    endInlineEdit();
+    replaceCardEl(card.id);
   });
   actions.appendChild(cancel);
 
@@ -506,7 +523,7 @@ function buildEditCard(card){
     }
     card.purpose = purposeEl.value.trim();
     await dbPut(card);
-    inlineEditId = null;
+    endInlineEdit();
     await reload();
     toast('保存しました');
   });
@@ -514,15 +531,48 @@ function buildEditCard(card){
 
   el.appendChild(actions);
 
-  // 開いたらすぐ書けるように入力欄へ移る
-  setTimeout(() => (textEl || purposeEl).focus(), 60);
+  // startInlineEdit から入力欄へカーソルを移せるように覚えておく
+  el._purposeEl = purposeEl;
+  el._textEl    = textEl;
   return el;
 }
 
-// 別のカードを編集中に押した場合は、前のカードの書きかけは捨てて切り替える
-function startInlineEdit(id){
+// 編集を始める。focusTo は最初に移る欄（'text' か 'purpose'）
+function startInlineEdit(id, focusTo){
+  if(inlineEditId === id) return;   // すでに編集中のカードなら何もしない
+
+  // 別のカードを編集中で、書きかけに変更があるときは確認する
+  if(inlineEditId !== null && isDraftChanged()){
+    if(!confirm('編集中の内容は保存されていません。破棄して切り替えますか。')) return;
+  }
+
+  const card = cards.find(c => c.id === id);
+  if(!card) return;
+  // 前に編集していたカードがあれば、通常の形に戻す
+  const prevId = inlineEditId;
   inlineEditId = id;
-  render();
+  inlineDraft  = { text: card.text || '', purpose: card.purpose || '' };
+  if(prevId !== null) replaceCardEl(prevId);
+
+  // 押したカードだけを編集の形に差し替える
+  const el = replaceCardEl(id);
+  if(!el) { render(); return; }
+
+  // カーソルを移す。preventScroll で、ブラウザによる余計なスクロールを止める
+  const target = (focusTo === 'purpose' || !el._textEl) ? el._purposeEl : el._textEl;
+  target.focus({ preventScroll: true });
+}
+
+function endInlineEdit(){
+  inlineEditId = null;
+  inlineDraft  = null;
+}
+
+// 書きかけが保存済みの内容と違うかどうか
+function isDraftChanged(){
+  const card = cards.find(c => c.id === inlineEditId);
+  if(!card || !inlineDraft) return false;
+  return inlineDraft.text !== (card.text || '') || inlineDraft.purpose !== (card.purpose || '');
 }
 
 function labelOf(card){
@@ -709,76 +759,26 @@ filePick.addEventListener('change', async () => {
 /* #SEC_JS_SHEET ------------------------------------ */
 const sheet        = document.getElementById('sheet');
 const backdrop     = document.getElementById('backdrop');
-const sheetTitle   = document.getElementById('sheetTitle');
-const sheetPreview = document.getElementById('sheetPreview');
-const sheetPreviewWrap = document.getElementById('sheetPreviewWrap');
-const sheetTextWrap = document.getElementById('sheetTextWrap');
 const sheetTextEl  = document.getElementById('sheetText');
 const sheetPurpose = document.getElementById('sheetPurpose');
 
-let sheetMode = 'note';   // 'note'（書いて入れる） | 'edit'（理由を書き直す）
-let editing   = null;
-
-function openSheet(mode){
-  sheetMode = mode;
+// シートは「書いて入れる」専用（理由の書き直しはカードの中で行う）
+function openSheet(){
   sheetPurpose.value = '';
   sheetTextEl.value  = '';
-  sheetPreview.innerHTML = '';
-
-  if(mode === 'edit'){
-    sheetTitle.textContent = '何のために置きましたか';
-    sheetPreviewWrap.style.display = '';
-    sheetTextWrap.style.display = 'none';
-    showPreview(editing);
-    sheetPurpose.value = editing.purpose || '';
-  } else {
-    sheetTitle.textContent = '書いて入れる';
-    sheetPreviewWrap.style.display = 'none';
-    sheetTextWrap.style.display = '';
-  }
 
   backdrop.classList.add('on');
   sheet.classList.add('on');
-  setTimeout(() => {
-    (mode === 'edit' ? sheetPurpose : sheetTextEl).focus();
-  }, 60);
-}
-
-function showPreview(card){
-  sheetPreview.innerHTML = '';
-  if(card.type === 'image'){
-    const img = document.createElement('img');
-    img.alt = '入れる画像';
-    img.src = URL.createObjectURL(card.blob);
-    sheetPreview.appendChild(img);
-  } else {
-    const pre = document.createElement('pre');
-    pre.textContent = card.text;
-    sheetPreview.appendChild(pre);
-  }
+  sheet.scrollTop = 0;
+  sheetTextEl.focus({ preventScroll: true });
 }
 
 function closeSheet(){
   backdrop.classList.remove('on');
   sheet.classList.remove('on');
-  editing = null;
-}
-
-function openSheetForEdit(card){
-  editing = card;
-  openSheet('edit');
 }
 
 async function saveSheet(){
-  if(sheetMode === 'edit'){
-    editing.purpose = sheetPurpose.value.trim();
-    await dbPut(editing);
-    closeSheet();
-    await reload();
-    toast('書き留めました');
-    return;
-  }
-  // 書いて入れる
   const t = sheetTextEl.value.trim();
   if(!t){ toast('内容が空です'); return; }
   const card = { id:newId(), type: isUrl(t) ? 'url' : 'text', text:t,
